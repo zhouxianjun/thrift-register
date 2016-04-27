@@ -13,8 +13,10 @@ import org.springframework.beans.factory.InitializingBean;
 
 import java.io.UnsupportedEncodingException;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Set;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * @author zhouxianjun(Gary)
@@ -28,6 +30,14 @@ public class ZookeeperThriftServerRegister implements ThriftServerRegister, Init
     private CuratorFramework zkClient;
 
     private Set<String> services = new HashSet<>();
+
+    private Timer reRegTimer;
+
+    // 休息多少毫秒重新注册(注册中心快速启动问题)
+    @Setter
+    private long sleepReg = 5000;
+
+    private AtomicBoolean isRun = new AtomicBoolean(false);
 
     @Override
     public void register(String service, String version, String address) throws Exception {
@@ -66,18 +76,33 @@ public class ZookeeperThriftServerRegister implements ThriftServerRegister, Init
             @Override
             public void stateChanged(CuratorFramework curatorFramework, ConnectionState connectionState) {
                 if (connectionState == ConnectionState.RECONNECTED && !services.isEmpty()) {
-                    try {
-                        log.info("sleep 5 ms rebuild.");
-                        Thread.sleep(1000 * 5);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
+                    if (reRegTimer != null && !isRun.get()) {
+                        reRegTimer.cancel();
+                        reRegTimer = null;
                     }
-                    for (String next : services) {
-                        try {
-                            reg(next);
-                        } catch (Exception e) {
-                            log.warn("reregister for {} error", next, e);
-                        }
+                    if (reRegTimer == null) {
+                        reRegTimer = new Timer();
+                        reRegTimer.schedule(new TimerTask() {
+                            @Override
+                            public void run() {
+                                isRun.compareAndSet(false, true);
+                                try {
+                                    for (String next : services) {
+                                        try {
+                                            reg(next);
+                                        } catch (Exception e) {
+                                            log.warn("reregister for {} error", next, e);
+                                        }
+                                    }
+                                    this.cancel();
+                                } catch (Exception e) {
+                                    log.warn("reregister task error", e);
+                                } finally {
+                                    reRegTimer = null;
+                                    isRun.compareAndSet(true, false);
+                                }
+                            }
+                        }, sleepReg);
                     }
                 }
             }
