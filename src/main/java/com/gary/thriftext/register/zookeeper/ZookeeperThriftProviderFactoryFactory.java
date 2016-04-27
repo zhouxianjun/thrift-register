@@ -1,6 +1,9 @@
 package com.gary.thriftext.register.zookeeper;
 
+import com.gary.thriftext.register.LoadBalance;
 import com.gary.thriftext.register.ThriftServerProviderFactory;
+import com.gary.thriftext.register.dto.Invoker;
+import com.gary.thriftext.register.loadbalance.RandomLoadBalance;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -12,7 +15,6 @@ import org.apache.curator.framework.recipes.cache.TreeCacheEvent;
 import org.apache.curator.framework.recipes.cache.TreeCacheListener;
 import org.springframework.beans.factory.InitializingBean;
 
-import java.net.InetSocketAddress;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -29,16 +31,16 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
     @Setter
     private CuratorFramework zkClient;
 
+    @Setter
+    private LoadBalance loadBalance = new RandomLoadBalance();
+
     private TreeCache treeCache;
 
     private CountDownLatch countDownLatch = new CountDownLatch(1);
 
-    private ConcurrentHashMap<String, Queue<InetSocketAddress>> queueMap = new ConcurrentHashMap<>();
-    private ConcurrentHashMap<String, List<InetSocketAddress>> cacheMap = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<String, List<Invoker>> cacheMap = new ConcurrentHashMap<>();
 
     private final Object lock = new Object();
-    // 默认权重
-    private static final Integer DEFAULT_WEIGHT = 1;
 
     public ZookeeperThriftProviderFactoryFactory(CuratorFramework zkClient) {
         this.zkClient = zkClient;
@@ -62,22 +64,23 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
             public void childEvent(CuratorFramework curatorFramework, TreeCacheEvent treeCacheEvent) throws Exception {
                 TreeCacheEvent.Type type = treeCacheEvent.getType();
                 log.debug("zookeeper event:{}", type);
-                cacheMap.clear();
-                rebuild("/");
-                for (Map.Entry<String, List<InetSocketAddress>> entry : cacheMap.entrySet()) {
+                Map<String, List<Invoker>> temp = new HashMap<>();
+                rebuild("/", temp);
+                for (Map.Entry<String, List<Invoker>> entry : temp.entrySet()) {
                     log.info("zookeeper subscribe {}-{}", entry.getKey(), Arrays.toString(entry.getValue().toArray()));
                     Collections.shuffle(entry.getValue());
                     synchronized (lock) {
-                        queueMap.clear();
-                        queueMap.putIfAbsent(entry.getKey(), new LinkedList<InetSocketAddress>());
-                        queueMap.get(entry.getKey()).addAll(entry.getValue());
+                        cacheMap.clear();
+                        cacheMap.putIfAbsent(entry.getKey(), new ArrayList<Invoker>());
+                        cacheMap.get(entry.getKey()).addAll(entry.getValue());
                     }
                 }
+                temp = null;
                 if (type == TreeCacheEvent.Type.INITIALIZED)
                     countDownLatch.countDown();
             }
 
-            private void rebuild(String root) {
+            private void rebuild(String root, Map<String, List<Invoker>> map) {
                 Map<String, ChildData> currentChildren = treeCache.getCurrentChildren(root);
                 if (currentChildren != null) {
                     for (Map.Entry<String, ChildData> entry : currentChildren.entrySet()) {
@@ -86,31 +89,15 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
                         String[] array = path.split("/");
                         if (array.length == 4) {
                             String key = array[1] + ":" + array[2];
-                            cacheMap.putIfAbsent(key, new ArrayList<InetSocketAddress>());
-                            cacheMap.get(key).addAll(transfer(array[3]));
+                            if (!map.containsKey(key))
+                                map.put(key, new ArrayList<Invoker>());
+                            map.get(key).add(new Invoker(array[3]));
                         }
-                        rebuild(path);
+                        rebuild(path, map);
                     }
                 }
             }
         });
-    }
-
-
-    private List<InetSocketAddress> transfer(String address) {
-        String[] hostname = address.split(":");
-        Integer weight = DEFAULT_WEIGHT;
-        if (hostname.length == 3) {
-            weight = Integer.valueOf(hostname[2]);
-        }
-        String ip = hostname[0];
-        Integer port = Integer.valueOf(hostname[1]);
-        List<InetSocketAddress> result = new ArrayList<>();
-        // 根据优先级，将ip：port添加多次到地址集中，然后随机取地址实现负载
-        for (int i = 0; i < weight; i++) {
-            result.add(new InetSocketAddress(ip, port));
-        }
-        return result;
     }
 
     /**
@@ -119,9 +106,9 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
      * @param version 版本
      * @return
      */
-    public List<InetSocketAddress> findServerAddressList(String service, String version) {
+    public List<Invoker> findServerAddressList(String service, String version) {
         String key = service + ":" + version;
-        List<InetSocketAddress> addresses = cacheMap.get(key);
+        List<Invoker> addresses = cacheMap.get(key);
         return addresses == null ? null : Collections.unmodifiableList(addresses);
     }
 
@@ -132,20 +119,11 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
      * @param version 版本
      * @return
      */
-    public synchronized InetSocketAddress selector(String service, String version) {
+    public Invoker selector(String service, String version) {
         String key = service + ":" + version;
-        Queue<InetSocketAddress> queue = queueMap.get(service);
-
-        if (queue == null || queue.isEmpty()) {
-            List<InetSocketAddress> addresses = cacheMap.get(key);
-            if (addresses != null && !addresses.isEmpty()) {
-                queueMap.putIfAbsent(key, new LinkedList<InetSocketAddress>());
-                queueMap.get(key).addAll(addresses);
-            }
+        synchronized (lock) {
+            return loadBalance.selector(cacheMap.get(key));
         }
-
-        queue = queueMap.get(key);
-        return queue == null ? null : queue.poll();
     }
 
     public void close() {

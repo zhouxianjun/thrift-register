@@ -1,7 +1,8 @@
 package com.gary.thriftext.register;
 
+import com.gary.thriftext.register.dto.Invoker;
+
 import java.io.Closeable;
-import java.net.InetSocketAddress;
 import java.util.List;
 
 /**
@@ -17,12 +18,12 @@ public interface ThriftServerProviderFactory extends Closeable {
      * @param version 版本
      * @return
      */
-    List<InetSocketAddress> findServerAddressList(String service, String version);
+    List<Invoker> findServerAddressList(String service, String version);
 
     /**
      * 选取一个合适的address,可以随机获取等'
      * 内部可以使用合适的算法.
      * @return
      */
-    InetSocketAddress selector(String service, String version);
+    Invoker selector(String service, String version);
 }
