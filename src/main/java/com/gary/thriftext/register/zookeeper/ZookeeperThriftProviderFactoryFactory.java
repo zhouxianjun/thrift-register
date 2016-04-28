@@ -1,9 +1,8 @@
 package com.gary.thriftext.register.zookeeper;
 
-import com.gary.thriftext.register.LoadBalance;
 import com.gary.thriftext.register.ThriftServerProviderFactory;
-import com.gary.thriftext.register.dto.Invoker;
-import com.gary.thriftext.register.loadbalance.RandomLoadBalance;
+import com.gary.thriftext.register.invoker.Invoker;
+import com.gary.thriftext.register.invoker.InvokerFactory;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -14,6 +13,7 @@ import org.apache.curator.framework.recipes.cache.TreeCache;
 import org.apache.curator.framework.recipes.cache.TreeCacheEvent;
 import org.apache.curator.framework.recipes.cache.TreeCacheListener;
 import org.springframework.beans.factory.InitializingBean;
+import org.springframework.util.ClassUtils;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,7 +32,7 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
     private CuratorFramework zkClient;
 
     @Setter
-    private LoadBalance loadBalance = new RandomLoadBalance();
+    private InvokerFactory invokerFactory;
 
     private TreeCache treeCache;
 
@@ -64,15 +64,51 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
             public void childEvent(CuratorFramework curatorFramework, TreeCacheEvent treeCacheEvent) throws Exception {
                 TreeCacheEvent.Type type = treeCacheEvent.getType();
                 log.debug("zookeeper event:{}", type);
-                Map<String, List<Invoker>> temp = new HashMap<>();
+                Map<String, List<String>> temp = new HashMap<>();
                 rebuild("/", temp);
-                for (Map.Entry<String, List<Invoker>> entry : temp.entrySet()) {
-                    log.info("zookeeper subscribe {}-{}", entry.getKey(), Arrays.toString(entry.getValue().toArray()));
-                    Collections.shuffle(entry.getValue());
-                    synchronized (lock) {
-                        cacheMap.clear();
-                        cacheMap.putIfAbsent(entry.getKey(), new ArrayList<Invoker>());
-                        cacheMap.get(entry.getKey()).addAll(entry.getValue());
+                synchronized (lock) {
+                    //销毁不存在的服务
+                    Iterator<Map.Entry<String, List<Invoker>>> iterator = cacheMap.entrySet().iterator();
+                    while (iterator.hasNext()) {
+                        Map.Entry<String, List<Invoker>> entry = iterator.next();
+                        if (!temp.containsKey(entry.getKey())) {
+                            for (Invoker invoker : entry.getValue()) {
+                                log.info("zookeeper unsubscribe {}-{}", entry.getKey(), invoker.getAddress());
+                                invoker.destroy();
+                            }
+                            iterator.remove();
+                            continue;
+                        }
+
+                        //销毁不存在的地址
+                        Iterator<Invoker> it = entry.getValue().iterator();
+                        while (it.hasNext()) {
+                            Invoker invoker = it.next();
+                            List<String> addressList = temp.get(entry.getKey());
+                            boolean available = invoker.isAvailable();
+                            for (String address : addressList) {
+                                if (!address.equals(invoker.getAddress())) {
+                                    available = false;
+                                    break;
+                                }
+                            }
+                            if (!available) {
+                                log.info("zookeeper unsubscribe {}-{}", entry.getKey(), invoker.getAddress());
+                                invoker.destroy();
+                                it.remove();
+                            }
+                        }
+                    }
+
+
+                    for (Map.Entry<String, List<String>> entry : temp.entrySet()) {
+                        if (!cacheMap.containsKey(entry.getKey())) {
+                            cacheMap.put(entry.getKey(), new ArrayList<Invoker>());
+                        }
+                        for (String address : entry.getValue()) {
+                            log.info("zookeeper subscribe {}-{}", entry.getKey(), address);
+                            cacheMap.get(entry.getKey()).add(invokerFactory.newInvoker(address, ClassUtils.forName(entry.getKey().split(":")[0], null)));
+                        }
                     }
                 }
                 temp = null;
@@ -80,7 +116,7 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
                     countDownLatch.countDown();
             }
 
-            private void rebuild(String root, Map<String, List<Invoker>> map) {
+            private void rebuild(String root, Map<String, List<String>> map) {
                 Map<String, ChildData> currentChildren = treeCache.getCurrentChildren(root);
                 if (currentChildren != null) {
                     for (Map.Entry<String, ChildData> entry : currentChildren.entrySet()) {
@@ -90,8 +126,8 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
                         if (array.length == 4) {
                             String key = array[1] + ":" + array[2];
                             if (!map.containsKey(key))
-                                map.put(key, new ArrayList<Invoker>());
-                            map.get(key).add(new Invoker(array[3]));
+                                map.put(key, new ArrayList<String>());
+                            map.get(key).add(array[3]);
                         }
                         rebuild(path, map);
                     }
@@ -106,29 +142,20 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
      * @param version 版本
      * @return
      */
-    public List<Invoker> findServerAddressList(String service, String version) {
+    public List<Invoker> allServerAddressList(String service, String version) {
         String key = service + ":" + version;
         List<Invoker> addresses = cacheMap.get(key);
         return addresses == null ? null : Collections.unmodifiableList(addresses);
     }
 
-    /**
-     * 选取一个合适的address,可以随机获取等'
-     * 使用权重算法.
-     * @param service 接口
-     * @param version 版本
-     * @return
-     */
-    public Invoker selector(String service, String version) {
-        String key = service + ":" + version;
-        synchronized (lock) {
-            return loadBalance.selector(cacheMap.get(key));
-        }
-    }
-
     public void close() {
         try {
             treeCache.close();
+            for (List<Invoker> invokers : cacheMap.values()) {
+                for (Invoker invoker : invokers) {
+                    invoker.destroy();
+                }
+            }
             zkClient.close();
         } catch (Exception e) {
             log.warn("stop TreeCache or zkClient error", e);

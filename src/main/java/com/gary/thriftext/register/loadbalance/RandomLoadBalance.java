@@ -1,7 +1,8 @@
 package com.gary.thriftext.register.loadbalance;
 
-import com.gary.thriftext.register.dto.Invoker;
+import com.gary.thriftext.register.invoker.Invoker;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Random;
 
@@ -16,7 +17,7 @@ public class RandomLoadBalance extends AbstractLoadBalance {
     private final Random random = new Random();
 
     @Override
-    protected Invoker doSelect(List<Invoker> invokers) {
+    protected Invoker doSelect(List<Invoker> invokers, Method method) {
         int length = invokers.size(); // 总个数
         int totalWeight = 0; // 总权重
         boolean sameWeight = true; // 权重是否都一样

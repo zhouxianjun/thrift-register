@@ -1,6 +1,6 @@
 package com.gary.thriftext.register;
 
-import com.gary.thriftext.register.dto.Invoker;
+import com.gary.thriftext.register.invoker.Invoker;
 
 import java.io.Closeable;
 import java.util.List;
@@ -18,12 +18,5 @@ public interface ThriftServerProviderFactory extends Closeable {
      * @param version 版本
      * @return
      */
-    List<Invoker> findServerAddressList(String service, String version);
-
-    /**
-     * 选取一个合适的address,可以随机获取等'
-     * 内部可以使用合适的算法.
-     * @return
-     */
-    Invoker selector(String service, String version);
+    List<Invoker> allServerAddressList(String service, String version);
 }

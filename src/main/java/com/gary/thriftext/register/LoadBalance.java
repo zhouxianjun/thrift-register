@@ -1,7 +1,8 @@
 package com.gary.thriftext.register;
 
-import com.gary.thriftext.register.dto.Invoker;
+import com.gary.thriftext.register.invoker.Invoker;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 /**
@@ -11,5 +12,5 @@ import java.util.List;
  * @date 2016/4/27 9:46
  */
 public interface LoadBalance {
-    Invoker selector(List<Invoker> addressList);
+    Invoker selector(List<Invoker> addressList, Method method);
 }

@@ -1,32 +1,37 @@
-package com.gary.thriftext.register.dto;
+package com.gary.thriftext.register.invoker;
 
-import lombok.Data;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.ToString;
 
 /**
  * @author zhouxianjun(Gary)
  * @ClassName:
  * @Description:
- * @date 2016/4/27 9:57
+ * @date 2016/4/28 14:35
  */
-@Data
-@ToString
 @NoArgsConstructor
-public class Invoker {
+public abstract class AbstractInvoker implements Invoker {
+    @Getter
     private String host;
 
+    @Getter
     private int port;
 
+    @Getter
     private int weight = 100;
 
+    @Getter
     private long startTime = 0L;
 
+    @Getter
     private int warmup = 10 * 60 * 1000;
 
+    @Getter
     private String address;
 
-    public Invoker(String address) {
+    private Class<?> interfaceClass;
+
+    public AbstractInvoker(String address, Class<?> interfaceClass) {
         String[] hostname = address.split(":");
         if (hostname.length >= 3) {
             this.weight = Integer.valueOf(hostname[2]);
@@ -39,6 +44,12 @@ public class Invoker {
         }
         this.host = hostname[0];
         this.port = Integer.valueOf(hostname[1]);
+        this.interfaceClass = interfaceClass;
         this.address = address;
+    }
+
+    @Override
+    public Class<?> getInterface() {
+        return interfaceClass;
     }
 }

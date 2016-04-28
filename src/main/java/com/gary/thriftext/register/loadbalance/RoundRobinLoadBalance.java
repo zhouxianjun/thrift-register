@@ -1,8 +1,9 @@
 package com.gary.thriftext.register.loadbalance;
 
 import com.gary.thriftext.register.dto.AtomicPositiveInteger;
-import com.gary.thriftext.register.dto.Invoker;
+import com.gary.thriftext.register.invoker.Invoker;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,7 +20,7 @@ public class RoundRobinLoadBalance extends AbstractLoadBalance {
     private final AtomicPositiveInteger weightSequence = new AtomicPositiveInteger();
 
     @Override
-    protected Invoker doSelect(List<Invoker> invokers) {
+    protected Invoker doSelect(List<Invoker> invokers, Method method) {
         int length = invokers.size(); // 总个数
         int maxWeight = 0; // 最大权重
         int minWeight = Integer.MAX_VALUE; // 最小权重

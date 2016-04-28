@@ -1,8 +1,9 @@
 package com.gary.thriftext.register.loadbalance;
 
 import com.gary.thriftext.register.LoadBalance;
-import com.gary.thriftext.register.dto.Invoker;
+import com.gary.thriftext.register.invoker.Invoker;
 
+import java.lang.reflect.Method;
 import java.util.List;
 
 /**
@@ -13,15 +14,15 @@ import java.util.List;
  */
 public abstract class AbstractLoadBalance implements LoadBalance {
     @Override
-    public Invoker selector(List<Invoker> invokers) {
+    public Invoker selector(List<Invoker> invokers, Method method) {
         if (invokers == null || invokers.isEmpty())
             return null;
         if (invokers.size() == 1)
             return invokers.get(0);
-        return doSelect(invokers);
+        return doSelect(invokers, method);
     }
 
-    protected abstract Invoker doSelect(List<Invoker> invokers);
+    protected abstract Invoker doSelect(List<Invoker> invokers, Method method);
 
     /**
      * 获取权重

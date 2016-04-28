@@ -1,8 +1,9 @@
 package com.gary.thriftext.register.loadbalance;
 
-import com.gary.thriftext.register.dto.Invoker;
+import com.gary.thriftext.register.invoker.Invoker;
 import com.gary.thriftext.register.dto.RpcStatus;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Random;
 
@@ -17,7 +18,7 @@ public class LeastActiveLoadBalance extends AbstractLoadBalance {
     private final Random random = new Random();
 
     @Override
-    protected Invoker doSelect(List<Invoker> invokers) {
+    protected Invoker doSelect(List<Invoker> invokers, Method method) {
         int length = invokers.size(); // 总个数
         int leastActive = -1; // 最小的活跃数
         int leastCount = 0; // 相同最小活跃数的个数
