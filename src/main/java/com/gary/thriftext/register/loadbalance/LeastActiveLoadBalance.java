@@ -1,7 +1,7 @@
 package com.gary.thriftext.register.loadbalance;
 
-import com.gary.thriftext.register.invoker.Invoker;
 import com.gary.thriftext.register.dto.RpcStatus;
+import com.gary.thriftext.register.invoker.Invoker;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -28,7 +28,7 @@ public class LeastActiveLoadBalance extends AbstractLoadBalance {
         boolean sameWeight = true; // 是否所有权重相同
         for (int i = 0; i < length; i++) {
             Invoker invoker = invokers.get(i);
-            int active = RpcStatus.getStatus("").getActive(); // 活跃数
+            int active = RpcStatus.getStatus(invoker.getInterface().getName(), method.getName()).getActive(); // 活跃数
             int weight = invoker.getWeight(); // 权重
             if (leastActive == -1 || active < leastActive) { // 发现更小的活跃数，重新开始
                 leastActive = active; // 记录最小活跃数
