@@ -18,5 +18,5 @@ public interface ThriftServerProviderFactory extends Closeable {
      * @param version 版本
      * @return
      */
-    List<Invoker> allServerAddressList(String service, String version);
+    List<Invoker> allServerAddressList(String service, String version, Class<?> referenceClass) throws Exception;
 }

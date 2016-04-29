@@ -13,7 +13,6 @@ import org.apache.curator.framework.recipes.cache.TreeCache;
 import org.apache.curator.framework.recipes.cache.TreeCacheEvent;
 import org.apache.curator.framework.recipes.cache.TreeCacheListener;
 import org.springframework.beans.factory.InitializingBean;
-import org.springframework.util.ClassUtils;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,6 +38,7 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
     private CountDownLatch countDownLatch = new CountDownLatch(1);
 
     private ConcurrentHashMap<String, List<Invoker>> cacheMap = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<String, List<String>> addressMap = new ConcurrentHashMap<>();
 
     private final Object lock = new Object();
 
@@ -67,6 +67,7 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
                 Map<String, List<String>> temp = new HashMap<>();
                 rebuild("/", temp);
                 synchronized (lock) {
+                    addressMap.clear();
                     //销毁不存在的服务
                     Iterator<Map.Entry<String, List<Invoker>>> iterator = cacheMap.entrySet().iterator();
                     while (iterator.hasNext()) {
@@ -102,13 +103,11 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
 
 
                     for (Map.Entry<String, List<String>> entry : temp.entrySet()) {
-                        if (!cacheMap.containsKey(entry.getKey())) {
-                            cacheMap.put(entry.getKey(), new ArrayList<Invoker>());
+                        if (!addressMap.containsKey(entry.getKey())) {
+                            addressMap.put(entry.getKey(), new ArrayList<String>());
                         }
-                        for (String address : entry.getValue()) {
-                            log.info("zookeeper subscribe {}-{}", entry.getKey(), address);
-                            cacheMap.get(entry.getKey()).add(invokerFactory.newInvoker(address, ClassUtils.forName(entry.getKey().split(":")[0], null)));
-                        }
+                        log.info("zookeeper subscribe {}-{}", entry.getKey(), Arrays.toString(entry.getValue().toArray()));
+                        addressMap.get(entry.getKey()).addAll(entry.getValue());
                     }
                 }
                 temp = null;
@@ -142,10 +141,29 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
      * @param version 版本
      * @return
      */
-    public List<Invoker> allServerAddressList(String service, String version) {
-        String key = service + ":" + version;
-        List<Invoker> addresses = cacheMap.get(key);
-        return addresses == null ? null : Collections.unmodifiableList(addresses);
+    public List<Invoker> allServerAddressList(String service, String version, Class<?> referenceClass) throws Exception {
+        synchronized (lock) {
+            String key = service + ":" + version;
+            List<String> addressList = addressMap.get(key);
+            if (!cacheMap.containsKey(key)) {
+                cacheMap.put(key, new ArrayList<Invoker>());
+            }
+            for (String address : addressList) {
+                boolean have = false;
+                for (Invoker invoker : cacheMap.get(key)) {
+                    if (invoker.getAddress().equals(address)) {
+                        have = true;
+                        break;
+                    }
+                }
+                if (!have) {
+                    cacheMap.get(key).add(invokerFactory.newInvoker(address, referenceClass));
+                    break;
+                }
+            }
+            List<Invoker> addresses = cacheMap.get(key);
+            return addresses == null ? null : Collections.unmodifiableList(addresses);
+        }
     }
 
     public void close() {
