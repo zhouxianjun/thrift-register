@@ -83,9 +83,9 @@ public class ZookeeperThriftProviderFactoryFactory implements InitializingBean, 
 
                         //销毁不存在的地址
                         Iterator<Invoker> it = entry.getValue().iterator();
+                        List<String> addressList = temp.get(entry.getKey());
                         while (it.hasNext()) {
                             Invoker invoker = it.next();
-                            List<String> addressList = temp.get(entry.getKey());
                             boolean available = invoker.isAvailable();
                             for (String address : addressList) {
                                 if (!address.equals(invoker.getAddress())) {
