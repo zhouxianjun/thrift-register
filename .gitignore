@@ -3,6 +3,7 @@
 
 # IntelliJ project files
 .idea
+filter.logback.dir_IS_UNDEFINED
 *.iml
 out
 gen
